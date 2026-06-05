@@ -487,6 +487,7 @@ describe('aas instrument', () => {
       // listApplicationSettings is now called in execute's Promise.all before instrumentSidecar
       expect(webAppsOperations.listApplicationSettings).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
       expect(webAppsOperations.updateApplicationSettings).not.toHaveBeenCalled()
+      expect(updateTags).not.toHaveBeenCalled()
       expect(webAppsOperations.restart).not.toHaveBeenCalled()
     })
 

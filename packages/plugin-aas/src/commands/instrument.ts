@@ -150,11 +150,11 @@ export class PluginCommand extends AasInstrumentCommand {
         }
         await Promise.all([
           this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars),
-          this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {}),
           webApp.slot && config.environment
             ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
             : Promise.resolve(),
         ])
+        await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
 
         return true
       }
@@ -173,11 +173,11 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       config.isMusl &&= config.isDotnet && isContainer
       await Promise.all([
         this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars),
-        this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {}),
         webApp.slot && config.environment
           ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
           : Promise.resolve(),
       ])
+      await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to instrument ${renderWebApp(webApp)}: ${formatError(error)}`))
 
