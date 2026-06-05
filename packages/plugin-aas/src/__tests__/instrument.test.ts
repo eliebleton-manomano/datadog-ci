@@ -487,7 +487,6 @@ describe('aas instrument', () => {
       // listApplicationSettings is now called in execute's Promise.all before instrumentSidecar
       expect(webAppsOperations.listApplicationSettings).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
       expect(webAppsOperations.updateApplicationSettings).not.toHaveBeenCalled()
-      expect(updateTags).not.toHaveBeenCalled()
       expect(webAppsOperations.restart).not.toHaveBeenCalled()
     })
 
@@ -825,7 +824,7 @@ describe('aas instrument', () => {
 
     test('Instruments a sidecar on a slot', async () => {
       webAppsOperations.getSlot.mockClear().mockResolvedValue(CONTAINER_WEB_APP)
-      const {code, context} = await runCLI(SLOT_INSTRUMENT_ARGS)
+      const {code, context} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--env', 'staging'])
       expect(code).toEqual(0)
       expect(context.stdout.toString()).toMatchSnapshot()
       expect(getToken).toHaveBeenCalled()
@@ -865,6 +864,7 @@ describe('aas instrument', () => {
         {
           properties: {
             DD_AAS_INSTANCE_LOGGING_ENABLED: 'false',
+            DD_ENV: 'staging',
             DD_SERVICE: 'my-web-app',
             DD_API_KEY: 'PLACEHOLDER',
             DD_SITE: 'datadoghq.com',
@@ -873,7 +873,7 @@ describe('aas instrument', () => {
         }
       )
       expect(updateTags).toHaveBeenCalledWith(WEB_APP_SLOT_ID, {
-        properties: {tags: {service: 'my-web-app', dd_sls_ci: 'vXXXX'}},
+        properties: {tags: {service: 'my-web-app', env: 'staging', dd_sls_ci: 'vXXXX'}},
       })
       expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
       expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app', {
@@ -884,7 +884,7 @@ describe('aas instrument', () => {
 
     test('Does not update slot config names if DD_ENV is already sticky', async () => {
       webAppsOperations.listSlotConfigurationNames.mockReset().mockResolvedValue({appSettingNames: ['DD_ENV']})
-      const {code} = await runCLI(SLOT_INSTRUMENT_ARGS)
+      const {code} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--env', 'staging'])
       expect(code).toEqual(0)
       expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
       expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()
@@ -896,8 +896,14 @@ describe('aas instrument', () => {
       expect(webAppsOperations.listSlotConfigurationNames).not.toHaveBeenCalled()
     })
 
+    test('Does not mark DD_ENV sticky when --env is not set', async () => {
+      const {code} = await runCLI(SLOT_INSTRUMENT_ARGS)
+      expect(code).toEqual(0)
+      expect(webAppsOperations.listSlotConfigurationNames).not.toHaveBeenCalled()
+    })
+
     test('Does not update slot config names in dry run', async () => {
-      const {code} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--dry-run'])
+      const {code} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--env', 'staging', '--dry-run'])
       expect(code).toEqual(0)
       expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
       expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()

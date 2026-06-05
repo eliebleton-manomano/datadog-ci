@@ -148,11 +148,13 @@ export class PluginCommand extends AasInstrumentCommand {
 
           return false
         }
-        await this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars)
-        await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
-        if (webApp.slot) {
-          await this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
-        }
+        await Promise.all([
+          this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars),
+          this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {}),
+          webApp.slot && config.environment
+            ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
+            : Promise.resolve(),
+        ])
 
         return true
       }
@@ -169,11 +171,13 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       }
       config.isDotnet ||= isDotnet(site)
       config.isMusl &&= config.isDotnet && isContainer
-      await this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars)
-      await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
-      if (webApp.slot) {
-        await this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
-      }
+      await Promise.all([
+        this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars),
+        this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {}),
+        webApp.slot && config.environment
+          ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
+          : Promise.resolve(),
+      ])
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to instrument ${renderWebApp(webApp)}: ${formatError(error)}`))
 
@@ -365,7 +369,6 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
     if (stickyNames.includes('DD_ENV')) {
       return
     }
-    this.context.stdout.write(`${this.dryRunPrefix}Marking DD_ENV as a slot setting for ${renderWebApp(webApp)}\n`)
     if (!this.dryRun) {
       await client.webApps.updateSlotConfigurationNames(resourceGroup, webApp.name, {
         ...existing,

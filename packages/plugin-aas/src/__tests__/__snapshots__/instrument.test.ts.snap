@@ -2,9 +2,9 @@
 
 exports[`aas instrument execute Adds a sidecar and updates the application settings and tags 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 Restarting Web App my-web-app
 🐶 Instrumentation completed successfully!
 "
@@ -12,9 +12,9 @@ Restarting Web App my-web-app
 
 exports[`aas instrument execute Adds core tags to the Web App 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 Restarting Web App my-web-app
 🐶 Instrumentation completed successfully!
 "
@@ -22,20 +22,20 @@ Restarting Web App my-web-app
 
 exports[`aas instrument execute Does not restart when specified 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 🐶 Instrumentation completed successfully!
 "
 `;
 
 exports[`aas instrument execute Dry run mode for Windows extension installation 1`] = `
 "[Dry Run] 🐶 Beginning instrumentation of Web App(s)
+[Dry Run] Updating tags for my-web-app
 [Dry Run] Updating Application Settings for my-web-app
 [Dry Run] Stopping Web App my-web-app
 [Dry Run] Installing extension Datadog.AzureAppServices.DotNet on my-web-app
 [Dry Run] Starting Web App my-web-app
-[Dry Run] Updating tags for my-web-app
 [Dry Run] 🐶 Instrumentation completed successfully!
 "
 `;
@@ -72,6 +72,7 @@ Please ensure that you have the Azure CLI installed (https://aka.ms/azure-cli) a
 
 exports[`aas instrument execute Handles error during Windows extension installation 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Updating Application Settings for my-web-app
 Stopping Web App my-web-app
 Installing extension Datadog.AzureAppServices.DotNet on my-web-app
@@ -82,6 +83,7 @@ Installing extension Datadog.AzureAppServices.DotNet on my-web-app
 
 exports[`aas instrument execute Handles errors during sidecar instrumentation 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 [Error] Failed to instrument my-web-app: Error: sidecar error
 🐶 Instrumentation completed with errors, see above for details.
@@ -91,9 +93,9 @@ Creating sidecar container datadog-sidecar on my-web-app
 exports[`aas instrument execute Ignores --musl flag and warns on non-containerized dotnet apps 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
 [!] The --musl flag is set, but the Web App my-web-app is not a containerized app. This flag is only applicable for containerized .NET apps (on musl-based distributions like Alpine Linux), and will be ignored.
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 Restarting Web App my-web-app
 🐶 Instrumentation completed successfully!
 "
@@ -101,10 +103,9 @@ Restarting Web App my-web-app
 
 exports[`aas instrument execute Instruments a sidecar on a slot 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app (slot: staging)
 Creating sidecar container datadog-sidecar on my-web-app (slot: staging)
 Updating Application Settings for my-web-app (slot: staging)
-Updating tags for my-web-app (slot: staging)
-Marking DD_ENV as a slot setting for my-web-app (slot: staging)
 Restarting Web App my-web-app (slot: staging)
 🐶 Instrumentation completed successfully!
 "
@@ -112,10 +113,9 @@ Restarting Web App my-web-app (slot: staging)
 
 exports[`aas instrument execute Instruments a slot via resource ID 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app (slot: staging)
 Creating sidecar container datadog-sidecar on my-web-app (slot: staging)
 Updating Application Settings for my-web-app (slot: staging)
-Updating tags for my-web-app (slot: staging)
-Marking DD_ENV as a slot setting for my-web-app (slot: staging)
 Restarting Web App my-web-app (slot: staging)
 🐶 Instrumentation completed successfully!
 "
@@ -123,12 +123,12 @@ Restarting Web App my-web-app (slot: staging)
 
 exports[`aas instrument execute Instruments multiple Web Apps in a single subscription 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
+Updating tags for my-web-app2
 Creating sidecar container datadog-sidecar on my-web-app
 Creating sidecar container datadog-sidecar on my-web-app2
 Updating Application Settings for my-web-app
 Updating Application Settings for my-web-app2
-Updating tags for my-web-app
-Updating tags for my-web-app2
 Restarting Web App my-web-app
 Restarting Web App my-web-app2
 🐶 Instrumentation completed successfully!
@@ -137,9 +137,9 @@ Restarting Web App my-web-app2
 
 exports[`aas instrument execute Performs no actions in dry run mode 1`] = `
 "[Dry Run] 🐶 Beginning instrumentation of Web App(s)
+[Dry Run] Updating tags for my-web-app
 [Dry Run] Creating sidecar container datadog-sidecar on my-web-app
 [Dry Run] Updating Application Settings for my-web-app
-[Dry Run] Updating tags for my-web-app
 [Dry Run] Restarting Web App my-web-app
 [Dry Run] 🐶 Instrumentation completed successfully!
 "
@@ -147,9 +147,9 @@ exports[`aas instrument execute Performs no actions in dry run mode 1`] = `
 
 exports[`aas instrument execute Sets additional environment variables from config 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Creating sidecar container datadog-sidecar on my-web-app
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 Restarting Web App my-web-app
 🐶 Instrumentation completed successfully!
 "
@@ -157,9 +157,9 @@ Restarting Web App my-web-app
 
 exports[`aas instrument execute Skips extension installation if already present 1`] = `
 "🐶 Beginning instrumentation of Web App(s)
+Updating tags for my-web-app
 Site extension Datadog.AzureAppServices.DotNet already installed on my-web-app.
 Updating Application Settings for my-web-app
-Updating tags for my-web-app
 🐶 Instrumentation completed successfully!
 "
 `;
