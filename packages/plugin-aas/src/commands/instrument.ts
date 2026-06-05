@@ -150,9 +150,7 @@ export class PluginCommand extends AasInstrumentCommand {
         }
         await Promise.all([
           this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars),
-          webApp.slot && config.environment
-            ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
-            : Promise.resolve(),
+          this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
         ])
         await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
 
@@ -173,9 +171,7 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       config.isMusl &&= config.isDotnet && isContainer
       await Promise.all([
         this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars),
-        webApp.slot && config.environment
-          ? this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
-          : Promise.resolve(),
+        this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
       ])
       await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
     } catch (error) {
@@ -359,8 +355,12 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
   private async makeStickySlotEnvVars(
     client: WebSiteManagementClient,
     resourceGroup: string,
-    webApp: WebApp
+    webApp: WebApp,
+    config: AasConfigOptions
   ): Promise<void> {
+    if (!webApp.slot || !config.environment) {
+      return
+    }
     const existing: SlotConfigNamesResource = await client.webApps.listSlotConfigurationNames(
       resourceGroup,
       webApp.name
