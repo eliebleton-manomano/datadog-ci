@@ -104,6 +104,7 @@ exports[`aas instrument execute Instruments a sidecar on a slot 1`] = `
 Creating sidecar container datadog-sidecar on my-web-app (slot: staging)
 Updating Application Settings for my-web-app (slot: staging)
 Updating tags for my-web-app (slot: staging)
+Marking DD_ENV as a slot setting for my-web-app (slot: staging)
 Restarting Web App my-web-app (slot: staging)
 🐶 Instrumentation completed successfully!
 "
@@ -114,6 +115,7 @@ exports[`aas instrument execute Instruments a slot via resource ID 1`] = `
 Creating sidecar container datadog-sidecar on my-web-app (slot: staging)
 Updating Application Settings for my-web-app (slot: staging)
 Updating tags for my-web-app (slot: staging)
+Marking DD_ENV as a slot setting for my-web-app (slot: staging)
 Restarting Web App my-web-app (slot: staging)
 🐶 Instrumentation completed successfully!
 "

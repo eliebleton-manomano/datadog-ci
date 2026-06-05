@@ -45,6 +45,8 @@ const webAppsOperations = {
   stopSlot: jest.fn(),
   startSlot: jest.fn(),
   restartSlot: jest.fn(),
+  listSlotConfigurationNames: jest.fn(),
+  updateSlotConfigurationNames: jest.fn(),
 }
 
 const updateTags = jest.fn().mockResolvedValue({})
@@ -121,6 +123,8 @@ describe('aas instrument', () => {
       webAppsOperations.stopSlot.mockReset().mockResolvedValue({})
       webAppsOperations.startSlot.mockReset().mockResolvedValue({})
       webAppsOperations.restartSlot.mockReset().mockResolvedValue({})
+      webAppsOperations.listSlotConfigurationNames.mockReset().mockResolvedValue({appSettingNames: []})
+      webAppsOperations.updateSlotConfigurationNames.mockReset().mockResolvedValue({})
       updateTags.mockClear().mockResolvedValue({})
       createAzureResource.mockClear().mockResolvedValue({})
       validateApiKey.mockClear().mockResolvedValue(true)
@@ -871,7 +875,32 @@ describe('aas instrument', () => {
       expect(updateTags).toHaveBeenCalledWith(WEB_APP_SLOT_ID, {
         properties: {tags: {service: 'my-web-app', dd_sls_ci: 'vXXXX'}},
       })
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app', {
+        appSettingNames: ['DD_ENV'],
+      })
       expect(webAppsOperations.restartSlot).toHaveBeenCalledWith('my-resource-group', 'my-web-app', 'staging')
+    })
+
+    test('Does not update slot config names if DD_ENV is already sticky', async () => {
+      webAppsOperations.listSlotConfigurationNames.mockReset().mockResolvedValue({appSettingNames: ['DD_ENV']})
+      const {code} = await runCLI(SLOT_INSTRUMENT_ARGS)
+      expect(code).toEqual(0)
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()
+    })
+
+    test('Does not mark DD_ENV sticky for non-slot instrumentation', async () => {
+      const {code} = await runCLI(DEFAULT_INSTRUMENT_ARGS)
+      expect(code).toEqual(0)
+      expect(webAppsOperations.listSlotConfigurationNames).not.toHaveBeenCalled()
+    })
+
+    test('Does not update slot config names in dry run', async () => {
+      const {code} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--dry-run'])
+      expect(code).toEqual(0)
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()
     })
 
     test('Installs Windows extension on a slot', async () => {

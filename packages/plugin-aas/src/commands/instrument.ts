@@ -1,4 +1,4 @@
-import type {SiteContainer, StringDictionary} from '@azure/arm-appservice'
+import type {SiteContainer, SlotConfigNamesResource, StringDictionary} from '@azure/arm-appservice'
 import type {AasConfigOptions, WebApp, WindowsRuntime} from '@datadog/datadog-ci-base/commands/aas/common'
 
 import {WebSiteManagementClient} from '@azure/arm-appservice'
@@ -150,6 +150,9 @@ export class PluginCommand extends AasInstrumentCommand {
         }
         await this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars)
         await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
+        if (webApp.slot) {
+          await this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
+        }
 
         return true
       }
@@ -168,6 +171,9 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       config.isMusl &&= config.isDotnet && isContainer
       await this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars)
       await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
+      if (webApp.slot) {
+        await this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp)
+      }
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to instrument ${renderWebApp(webApp)}: ${formatError(error)}`))
 
@@ -344,6 +350,28 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       )
     }
     await this.updateEnvVars(client, resourceGroup, webApp, existingEnvVars, envVars)
+  }
+
+  private async makeStickySlotEnvVars(
+    client: WebSiteManagementClient,
+    resourceGroup: string,
+    webApp: WebApp
+  ): Promise<void> {
+    const existing: SlotConfigNamesResource = await client.webApps.listSlotConfigurationNames(
+      resourceGroup,
+      webApp.name
+    )
+    const stickyNames = existing.appSettingNames ?? []
+    if (stickyNames.includes('DD_ENV')) {
+      return
+    }
+    this.context.stdout.write(`${this.dryRunPrefix}Marking DD_ENV as a slot setting for ${renderWebApp(webApp)}\n`)
+    if (!this.dryRun) {
+      await client.webApps.updateSlotConfigurationNames(resourceGroup, webApp.name, {
+        ...existing,
+        appSettingNames: [...stickyNames, 'DD_ENV'],
+      })
+    }
   }
 
   private async updateEnvVars(
