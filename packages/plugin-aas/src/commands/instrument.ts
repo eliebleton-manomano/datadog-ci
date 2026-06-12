@@ -11,7 +11,6 @@ import {
   WINDOWS_RUNTIME_EXTENSIONS,
 } from '@datadog/datadog-ci-base/commands/aas/common'
 import {AasInstrumentCommand} from '@datadog/datadog-ci-base/commands/aas/instrument'
-import {DATADOG_SITE_US1} from '@datadog/datadog-ci-base/constants'
 import {getDatadogSite} from '@datadog/datadog-ci-base/helpers/api'
 import {newApiKeyValidator} from '@datadog/datadog-ci-base/helpers/apikey'
 import {renderError, renderSoftWarning} from '@datadog/datadog-ci-base/helpers/renderer'
@@ -152,6 +151,7 @@ export class PluginCommand extends AasInstrumentCommand {
           this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars),
           this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
         ])
+        // we explicitly tag after instrumentation so we don't get a positive telemetry signal until it succeeds
         await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
 
         return true
@@ -173,6 +173,7 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
         this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars),
         this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
       ])
+      // we explicitly tag after instrumentation so we don't get a positive telemetry signal until it succeeds
       await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to instrument ${renderWebApp(webApp)}: ${formatError(error)}`))
