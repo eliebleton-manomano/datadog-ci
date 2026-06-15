@@ -81,6 +81,12 @@ export const getEnvVars = (config: AasConfigOptions, isContainer: boolean): Reco
   return envVars
 }
 
+export const AZURE_FUNCTIONS_DOCS_URL = 'https://docs.datadoghq.com/serverless/azure_functions'
+
+export const isFunctionApp = (site: Site): boolean => {
+  return !!site.kind?.includes('functionapp')
+}
+
 export const isWindows = (site: Site): boolean => {
   if (!site.kind) {
     // search for windowsFxVersion in siteConfig if there is no kind

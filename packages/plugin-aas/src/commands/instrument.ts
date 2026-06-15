@@ -26,7 +26,15 @@ import {SERVERLESS_CLI_VERSION_TAG_NAME, SERVERLESS_CLI_VERSION_TAG_VALUE} from 
 import {maskString} from '@datadog/datadog-ci-base/helpers/utils'
 import chalk from 'chalk'
 
-import {getWindowsRuntime, getEnvVars, isDotnet, isLinuxContainer, isWindows} from '../common'
+import {
+  getWindowsRuntime,
+  getEnvVars,
+  isDotnet,
+  isFunctionApp,
+  isLinuxContainer,
+  isWindows,
+  AZURE_FUNCTIONS_DOCS_URL,
+} from '../common'
 
 interface ProcessResult {
   success: boolean
@@ -42,18 +50,20 @@ interface StickySlotSettings {
 }
 
 /**
- * Sticky slot settings a resource needs registered on its parent site. Includes
- * DD_ENV when --env is set. Undefined when not targeting a slot.
+ * Sticky slot settings a resource needs registered on its parent site. Always
+ * includes DD_ENV when --env is set; additionalNames pins extra settings (e.g.
+ * WEBSITE_PRIVATE_EXTENSIONS for Function App slots). Undefined when not a slot.
  */
 const stickySettingsFor = (
   resourceGroup: string,
   webApp: WebApp,
-  config: AasConfigOptions
+  config: AasConfigOptions,
+  additionalNames: string[] = []
 ): StickySlotSettings | undefined => {
   if (!webApp.slot) {
     return undefined
   }
-  const names: string[] = []
+  const names = [...additionalNames]
   if (config.environment) {
     names.push('DD_ENV')
   }
@@ -188,12 +198,48 @@ export class PluginCommand extends AasInstrumentCommand {
               aasClient.webApps.listApplicationSettings(resourceGroup, webApp.name),
             ]
       )
-      const existingEnvVars = envVarDictionary.properties ?? {}
+      let existingEnvVars = envVarDictionary.properties ?? {}
 
       // Determine instrumentation method based on platform
+      if (isFunctionApp(site) && !isWindows(site)) {
+        this.context.stdout.write(
+          renderError(`Linux Function Apps are not supported by this command. See ${AZURE_FUNCTIONS_DOCS_URL}`)
+        )
+
+        return {success: false}
+      }
+
       if (isWindows(site)) {
         // Windows instrumentation via extension
         const runtime = config.windowsRuntime ?? getWindowsRuntime(site, existingEnvVars)
+
+        if (isFunctionApp(site)) {
+          if (runtime !== 'dotnet') {
+            this.context.stdout.write(
+              renderError(
+                `Windows Function Apps with the ${runtime ?? 'unknown'} runtime are not supported by this command. See ${AZURE_FUNCTIONS_DOCS_URL}`
+              )
+            )
+
+            return {success: false}
+          }
+          if (webApp.slot) {
+            // Disable private site extensions on the slot so the Functions runtime releases its locks on the
+            // SiteExtensions directory before the extension install (datadog-aas-extension#457). instrumentExtension
+            // writes this app setting before the install; registering it sticky (once per site, below) keeps it
+            // from following a swap.
+            existingEnvVars = {...existingEnvVars, WEBSITE_PRIVATE_EXTENSIONS: '0'}
+          }
+          await this.instrumentExtension(aasClient, config, resourceGroup, webApp, 'dotnet', existingEnvVars)
+          // we explicitly tag after instrumentation so we don't get a positive telemetry signal until it succeeds
+          await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
+
+          return {
+            success: true,
+            sticky: stickySettingsFor(resourceGroup, webApp, config, ['WEBSITE_PRIVATE_EXTENSIONS']),
+          }
+        }
+
         if (!runtime) {
           this.context.stdout.write(
             renderSoftWarning(
@@ -314,7 +360,10 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       return
     }
 
-    const envVarsPromise = this.updateEnvVars(client, resourceGroup, webApp, existingEnvVars, envVars)
+    // Apply the app settings before installing the extension. For Function App slots this commits
+    // WEBSITE_PRIVATE_EXTENSIONS=0 so the Functions runtime releases its locks on the SiteExtensions
+    // directory before the install's MoveDirectory step runs (datadog-aas-extension#457).
+    await this.updateEnvVars(client, resourceGroup, webApp, existingEnvVars, envVars)
 
     this.context.stdout.write(`${this.dryRunPrefix}Stopping Web App ${renderWebApp(webApp)}\n`)
     if (!this.dryRun) {
@@ -334,7 +383,6 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
         {}
       )
     }
-    await envVarsPromise
 
     this.context.stdout.write(`${this.dryRunPrefix}Starting Web App ${renderWebApp(webApp)}\n`)
     if (!this.dryRun) {
@@ -419,6 +467,9 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
     if (toAdd.length === 0) {
       return
     }
+    this.context.stdout.write(
+      `${this.dryRunPrefix}Registering ${toAdd.join(', ')} as sticky slot setting(s) on ${chalk.bold(name)}\n`
+    )
     if (!this.dryRun) {
       await client.webApps.updateSlotConfigurationNames(resourceGroup, name, {
         ...existing,

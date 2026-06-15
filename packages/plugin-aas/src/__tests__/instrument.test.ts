@@ -68,9 +68,13 @@ import {PluginCommand as InstrumentCommand} from '../commands/instrument'
 import {
   CONTAINER_WEB_APP,
   LINUX_CODE_WEB_APP,
+  LINUX_FUNCTION_APP,
   WINDOWS_DOTNET_WEB_APP,
+  WINDOWS_DOTNET_FUNCTION_APP,
   WINDOWS_NODE_WEB_APP,
+  WINDOWS_NODE_FUNCTION_APP,
   WINDOWS_JAVA_WEB_APP,
+  WINDOWS_JAVA_FUNCTION_APP,
   DEFAULT_INSTRUMENT_ARGS,
   DEFAULT_CONFIG,
   WEB_APP_ID,
@@ -803,6 +807,103 @@ describe('aas instrument', () => {
       const {code, context} = await runCLI([...DEFAULT_INSTRUMENT_ARGS, '--extra-tags', 'invalid-tag-format'])
       expect(code).toEqual(1)
       expect(context.stdout.toString()).toMatchSnapshot()
+    })
+
+    test('Installs .NET extension on Windows Function App (no slot)', async () => {
+      webAppsOperations.get.mockClear().mockResolvedValue(WINDOWS_DOTNET_FUNCTION_APP)
+      const {code} = await runCLI(DEFAULT_INSTRUMENT_ARGS)
+      expect(code).toEqual(0)
+
+      expect(webAppsOperations.get).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.stop).toHaveBeenCalledTimes(1)
+      expect(createAzureResource).toHaveBeenCalledWith(
+        `${WEB_APP_ID}/siteextensions/Datadog.AzureAppServices.DotNet`,
+        '2024-11-01',
+        expect.any(Object)
+      )
+      expect(webAppsOperations.start).toHaveBeenCalledTimes(1)
+      expect(webAppsOperations.listSlotConfigurationNames).not.toHaveBeenCalled()
+      expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()
+    })
+
+    test('Installs .NET extension on Windows Function App with slot (sticky prereqs applied)', async () => {
+      webAppsOperations.getSlot.mockClear().mockResolvedValue(WINDOWS_DOTNET_FUNCTION_APP)
+      const {code} = await runCLI(SLOT_INSTRUMENT_ARGS)
+      expect(code).toEqual(0)
+
+      expect(webAppsOperations.getSlot).toHaveBeenCalledWith('my-resource-group', 'my-web-app', 'staging')
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledWith(
+        'my-resource-group',
+        'my-web-app',
+        expect.objectContaining({
+          appSettingNames: expect.arrayContaining(['WEBSITE_PRIVATE_EXTENSIONS']),
+        })
+      )
+      expect(webAppsOperations.updateApplicationSettingsSlot).toHaveBeenCalledWith(
+        'my-resource-group',
+        'my-web-app',
+        'staging',
+        expect.objectContaining({
+          properties: expect.objectContaining({WEBSITE_PRIVATE_EXTENSIONS: '0'}),
+        })
+      )
+      expect(webAppsOperations.stopSlot).toHaveBeenCalledWith('my-resource-group', 'my-web-app', 'staging')
+      expect(createAzureResource).toHaveBeenCalledWith(
+        `${WEB_APP_SLOT_ID}/siteextensions/Datadog.AzureAppServices.DotNet`,
+        '2024-11-01',
+        expect.any(Object)
+      )
+      expect(webAppsOperations.startSlot).toHaveBeenCalledWith('my-resource-group', 'my-web-app', 'staging')
+
+      // WEBSITE_PRIVATE_EXTENSIONS=0 must be written to the slot before the extension install so the
+      // Functions runtime releases its SiteExtensions locks beforehand (see datadog-aas-extension#457)
+      expect(webAppsOperations.updateApplicationSettingsSlot.mock.invocationCallOrder[0]).toBeLessThan(
+        createAzureResource.mock.invocationCallOrder[0]
+      )
+    })
+
+    test('Registers DD_ENV and WEBSITE_PRIVATE_EXTENSIONS sticky together on a Function App slot with --env', async () => {
+      webAppsOperations.getSlot.mockClear().mockResolvedValue(WINDOWS_DOTNET_FUNCTION_APP)
+      const {code} = await runCLI([...SLOT_INSTRUMENT_ARGS, '--env', 'staging'])
+      expect(code).toEqual(0)
+
+      // Both names must be registered in a single read-modify-write to avoid one clobbering the other
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledTimes(1)
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledWith(
+        'my-resource-group',
+        'my-web-app',
+        expect.objectContaining({
+          appSettingNames: expect.arrayContaining(['WEBSITE_PRIVATE_EXTENSIONS', 'DD_ENV']),
+        })
+      )
+    })
+
+    test('Rejects Windows Node.js Function App with error', async () => {
+      webAppsOperations.get.mockClear().mockResolvedValue(WINDOWS_NODE_FUNCTION_APP)
+      const {code, context} = await runCLI(DEFAULT_INSTRUMENT_ARGS)
+      expect(code).toEqual(1)
+      expect(context.stdout.toString()).toContain('https://docs.datadoghq.com/serverless/azure_functions')
+      expect(createAzureResource).not.toHaveBeenCalled()
+      expect(webAppsOperations.stop).not.toHaveBeenCalled()
+    })
+
+    test('Rejects Windows Java Function App with error', async () => {
+      webAppsOperations.get.mockClear().mockResolvedValue(WINDOWS_JAVA_FUNCTION_APP)
+      const {code, context} = await runCLI(DEFAULT_INSTRUMENT_ARGS)
+      expect(code).toEqual(1)
+      expect(context.stdout.toString()).toContain('https://docs.datadoghq.com/serverless/azure_functions')
+      expect(createAzureResource).not.toHaveBeenCalled()
+      expect(webAppsOperations.stop).not.toHaveBeenCalled()
+    })
+
+    test('Rejects Linux Function App with error', async () => {
+      webAppsOperations.get.mockClear().mockResolvedValue(LINUX_FUNCTION_APP)
+      const {code, context} = await runCLI(DEFAULT_INSTRUMENT_ARGS)
+      expect(code).toEqual(1)
+      expect(context.stdout.toString()).toContain('https://docs.datadoghq.com/serverless/azure_functions')
+      expect(webAppsOperations.createOrUpdateSiteContainer).not.toHaveBeenCalled()
+      expect(webAppsOperations.stop).not.toHaveBeenCalled()
     })
 
     test('Validates windows runtime parameter', async () => {
