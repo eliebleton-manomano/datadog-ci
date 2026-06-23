@@ -1,4 +1,4 @@
-import type {SiteContainer, SlotConfigNamesResource, StringDictionary} from '@azure/arm-appservice'
+import type {SiteContainer, StringDictionary} from '@azure/arm-appservice'
 import type {AasConfigOptions, WebApp, WindowsRuntime} from '@datadog/datadog-ci-base/commands/aas/common'
 
 import {WebSiteManagementClient} from '@azure/arm-appservice'
@@ -34,6 +34,9 @@ import {
   isLinuxContainer,
   isWindows,
   AZURE_FUNCTIONS_DOCS_URL,
+  aggregateStickyBySite,
+  mutateStickySlotSettings,
+  type StickySlotSettings,
 } from '../common'
 
 interface ProcessResult {
@@ -41,12 +44,6 @@ interface ProcessResult {
   // Sticky slot settings this resource needs registered on its parent site.
   // Aggregated per-site and written once, since slotConfigNames is site-level.
   sticky?: StickySlotSettings
-}
-
-interface StickySlotSettings {
-  resourceGroup: string
-  name: string
-  names: string[]
 }
 
 /**
@@ -148,23 +145,15 @@ export class PluginCommand extends AasInstrumentCommand {
       )
     )
 
-    // slotConfigNames is a single site-level resource shared by all of a site's
-    // slots, so we union the sticky settings each slot reported and write them
-    // once per site. This avoids concurrent read-modify-writes racing (and Azure
-    // returning 409) when multiple slots of the same app are instrumented at once.
-    const stickyBySite = new Map<string, StickySlotSettings>()
-    for (const {sticky} of results) {
-      if (!sticky?.names.length) {
-        continue
-      }
-      const key = `${sticky.resourceGroup}/${sticky.name}`
-      const entry = stickyBySite.get(key) ?? {resourceGroup: sticky.resourceGroup, name: sticky.name, names: []}
-      entry.names = [...new Set([...entry.names, ...sticky.names])]
-      stickyBySite.set(key, entry)
-    }
+    // Register sticky settings once per site (slotConfigNames is site-level) to avoid
+    // concurrent read-modify-writes racing when multiple slots of one app are instrumented.
     await Promise.all(
-      [...stickyBySite.values()].map(({resourceGroup, name, names}) =>
-        this.registerStickySlotSettings(aasClient, resourceGroup, name, names)
+      aggregateStickyBySite(results.map((result) => result.sticky)).map(({resourceGroup, name, names}) =>
+        mutateStickySlotSettings(aasClient, resourceGroup, name, names, 'add', {
+          dryRun: this.dryRun,
+          dryRunPrefix: this.dryRunPrefix,
+          log: (message) => this.context.stdout.write(message),
+        })
       )
     )
 
@@ -449,33 +438,6 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       )
     }
     await this.updateEnvVars(client, resourceGroup, webApp, existingEnvVars, envVars)
-  }
-
-  /**
-   * Register the given app settings as sticky (in slotConfigNames) so they stay
-   * with their slot across a swap. Runs once per site with a single read-modify-write.
-   */
-  private async registerStickySlotSettings(
-    client: WebSiteManagementClient,
-    resourceGroup: string,
-    name: string,
-    names: string[]
-  ): Promise<void> {
-    const existing: SlotConfigNamesResource = await client.webApps.listSlotConfigurationNames(resourceGroup, name)
-    const stickyNames = existing.appSettingNames ?? []
-    const toAdd = names.filter((settingName) => !stickyNames.includes(settingName))
-    if (toAdd.length === 0) {
-      return
-    }
-    this.context.stdout.write(
-      `${this.dryRunPrefix}Registering ${toAdd.join(', ')} as sticky slot setting(s) on ${chalk.bold(name)}\n`
-    )
-    if (!this.dryRun) {
-      await client.webApps.updateSlotConfigurationNames(resourceGroup, name, {
-        ...existing,
-        appSettingNames: [...stickyNames, ...toAdd],
-      })
-    }
   }
 
   private async updateEnvVars(

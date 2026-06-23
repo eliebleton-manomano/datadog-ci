@@ -13,7 +13,23 @@ import {SIDECAR_CONTAINER_NAME} from '@datadog/datadog-ci-base/helpers/serverles
 import {SERVERLESS_CLI_VERSION_TAG_NAME} from '@datadog/datadog-ci-base/helpers/tags'
 import chalk from 'chalk'
 
-import {AAS_DD_SETTING_NAMES, isDotnet, isWindows} from '../common'
+import {
+  AAS_DD_SETTING_NAMES,
+  aggregateStickyBySite,
+  isDotnet,
+  isFunctionApp,
+  isWindows,
+  mutateStickySlotSettings,
+  type StickySlotSettings,
+} from '../common'
+
+interface ProcessResult {
+  success: boolean
+  // Sticky slot settings to unregister on the parent site (e.g. WEBSITE_PRIVATE_EXTENSIONS
+  // for Function App slots). Aggregated per-site and removed once, since slotConfigNames
+  // is site-level.
+  stickyToRemove?: StickySlotSettings
+}
 
 export class PluginCommand extends AasUninstrumentCommand {
   private cred!: DefaultAzureCredential
@@ -63,7 +79,19 @@ export class PluginCommand extends AasUninstrumentCommand {
       )
     )
 
-    return results.every((result) => result)
+    // Remove sticky settings once per site (slotConfigNames is site-level) to avoid concurrent
+    // read-modify-writes racing when multiple slots of one app are uninstrumented.
+    await Promise.all(
+      aggregateStickyBySite(results.map((result) => result.stickyToRemove)).map(({resourceGroup, name, names}) =>
+        mutateStickySlotSettings(client, resourceGroup, name, names, 'remove', {
+          dryRun: this.dryRun,
+          dryRunPrefix: this.dryRunPrefix,
+          log: (message) => this.context.stdout.write(message),
+        })
+      )
+    )
+
+    return results.every((result) => result.success)
   }
 
   /**
@@ -75,7 +103,7 @@ export class PluginCommand extends AasUninstrumentCommand {
     config: AasConfigOptions,
     resourceGroup: string,
     webApp: WebApp
-  ): Promise<boolean> {
+  ): Promise<ProcessResult> {
     try {
       const [site, siteConfig] = await Promise.all(
         webApp.slot
@@ -90,13 +118,19 @@ export class PluginCommand extends AasUninstrumentCommand {
       )
       // patch in the site config which is the real source of truth
       site.siteConfig = siteConfig
+      // Function App slots get WEBSITE_PRIVATE_EXTENSIONS=0 set (and pinned sticky) during
+      // instrumentation as a workaround for the extension install (datadog-aas-extension#457).
+      // Undo both on teardown: remove the app setting here, unregister it sticky per-site below.
+      const removePrivateExtensions = isWindows(site) && isFunctionApp(site) && !!webApp.slot
+      const extraSettings = removePrivateExtensions ? ['WEBSITE_PRIVATE_EXTENSIONS'] : []
       // Determine uninstrumentation method based on platform
       if (isWindows(site)) {
         await this.uninstrumentExtension(
           client,
           {...config, service: config.service ?? webApp.name},
           resourceGroup,
-          webApp
+          webApp,
+          extraSettings
         )
       } else {
         // Linux uninstrumentation via sidecar
@@ -108,20 +142,26 @@ export class PluginCommand extends AasUninstrumentCommand {
         )
       }
       await this.removeTags(client.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
+
+      return {
+        success: true,
+        stickyToRemove: removePrivateExtensions
+          ? {resourceGroup, name: webApp.name, names: ['WEBSITE_PRIVATE_EXTENSIONS']}
+          : undefined,
+      }
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to uninstrument ${chalk.bold(webApp)}: ${formatError(error)}`))
 
-      return false
+      return {success: false}
     }
-
-    return true
   }
 
   public async uninstrumentExtension(
     client: WebSiteManagementClient,
     config: AasConfigOptions,
     resourceGroup: string,
-    webApp: WebApp
+    webApp: WebApp,
+    additionalSettings: string[] = []
   ) {
     // List all currently installed extensions
     const existingExtensions = await collectAsyncIterator(
@@ -163,7 +203,7 @@ export class PluginCommand extends AasUninstrumentCommand {
     }
 
     // Updaing the environment variables will trigger a restart
-    await this.removeEnvVars(config, webApp, client, resourceGroup)
+    await this.removeEnvVars(config, webApp, client, resourceGroup, additionalSettings)
   }
 
   public async uninstrumentSidecar(
@@ -187,9 +227,14 @@ export class PluginCommand extends AasUninstrumentCommand {
     config: AasConfigOptions,
     webApp: WebApp,
     client: WebSiteManagementClient,
-    resourceGroup: string
+    resourceGroup: string,
+    additionalSettings: string[] = []
   ) {
-    const configuredSettings = new Set([...AAS_DD_SETTING_NAMES, ...Object.keys(parseEnvVars(config.envVars))])
+    const configuredSettings = new Set([
+      ...AAS_DD_SETTING_NAMES,
+      ...Object.keys(parseEnvVars(config.envVars)),
+      ...additionalSettings,
+    ])
     this.context.stdout.write(`${this.dryRunPrefix}Checking Application Settings on ${renderWebApp(webApp)}\n`)
     const currentEnvVars = (
       await (webApp.slot
