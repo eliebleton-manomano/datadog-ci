@@ -910,6 +910,29 @@ describe('aas instrument', () => {
       expect(webAppsOperations.updateSlotConfigurationNames).not.toHaveBeenCalled()
     })
 
+    test('Registers DD_ENV sticky once when instrumenting multiple slots of the same site', async () => {
+      const {code} = await runCLI([
+        '-r',
+        WEB_APP_ID,
+        '-r',
+        WEB_APP_SLOT_ID,
+        '-r',
+        WEB_APP_ID + '/slots/staging2',
+        '--env',
+        'staging',
+        '--no-source-code-integration',
+      ])
+      expect(code).toEqual(0)
+      // slotConfigNames is site-level, so we read and write it once for the whole
+      // site even though two slots were instrumented -- no concurrent 409 race.
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledTimes(1)
+      expect(webAppsOperations.listSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app')
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledTimes(1)
+      expect(webAppsOperations.updateSlotConfigurationNames).toHaveBeenCalledWith('my-resource-group', 'my-web-app', {
+        appSettingNames: ['DD_ENV'],
+      })
+    })
+
     test('Installs Windows extension on a slot', async () => {
       webAppsOperations.getSlot.mockClear().mockResolvedValue(WINDOWS_DOTNET_WEB_APP)
       const {code} = await runCLI(SLOT_INSTRUMENT_ARGS)

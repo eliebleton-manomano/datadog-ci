@@ -28,6 +28,39 @@ import chalk from 'chalk'
 
 import {getWindowsRuntime, getEnvVars, isDotnet, isLinuxContainer, isWindows} from '../common'
 
+interface ProcessResult {
+  success: boolean
+  // Sticky slot settings this resource needs registered on its parent site.
+  // Aggregated per-site and written once, since slotConfigNames is site-level.
+  sticky?: StickySlotSettings
+}
+
+interface StickySlotSettings {
+  resourceGroup: string
+  name: string
+  names: string[]
+}
+
+/**
+ * Sticky slot settings a resource needs registered on its parent site. Includes
+ * DD_ENV when --env is set. Undefined when not targeting a slot.
+ */
+const stickySettingsFor = (
+  resourceGroup: string,
+  webApp: WebApp,
+  config: AasConfigOptions
+): StickySlotSettings | undefined => {
+  if (!webApp.slot) {
+    return undefined
+  }
+  const names: string[] = []
+  if (config.environment) {
+    names.push('DD_ENV')
+  }
+
+  return names.length ? {resourceGroup, name: webApp.name, names} : undefined
+}
+
 export class PluginCommand extends AasInstrumentCommand {
   private cred!: DefaultAzureCredential
   private resourceClient!: ResourceManagementClient
@@ -105,7 +138,27 @@ export class PluginCommand extends AasInstrumentCommand {
       )
     )
 
-    return results.every((result) => result)
+    // slotConfigNames is a single site-level resource shared by all of a site's
+    // slots, so we union the sticky settings each slot reported and write them
+    // once per site. This avoids concurrent read-modify-writes racing (and Azure
+    // returning 409) when multiple slots of the same app are instrumented at once.
+    const stickyBySite = new Map<string, StickySlotSettings>()
+    for (const {sticky} of results) {
+      if (!sticky?.names.length) {
+        continue
+      }
+      const key = `${sticky.resourceGroup}/${sticky.name}`
+      const entry = stickyBySite.get(key) ?? {resourceGroup: sticky.resourceGroup, name: sticky.name, names: []}
+      entry.names = [...new Set([...entry.names, ...sticky.names])]
+      stickyBySite.set(key, entry)
+    }
+    await Promise.all(
+      [...stickyBySite.values()].map(({resourceGroup, name, names}) =>
+        this.registerStickySlotSettings(aasClient, resourceGroup, name, names)
+      )
+    )
+
+    return results.every((result) => result.success)
   }
 
   /**
@@ -117,9 +170,12 @@ export class PluginCommand extends AasInstrumentCommand {
     config: AasConfigOptions,
     resourceGroup: string,
     webApp: WebApp
-  ): Promise<boolean> {
+  ): Promise<ProcessResult> {
     // make config a copy with the default service added
     config = {...config, service: config.service ?? webApp.name}
+    // Sticky slot settings this resource needs on its parent site (none unless a
+    // slot). Reported back so processSubscription can register them once per site.
+    const sticky = stickySettingsFor(resourceGroup, webApp, config)
     try {
       const [site, envVarDictionary] = await Promise.all(
         webApp.slot
@@ -145,16 +201,13 @@ export class PluginCommand extends AasInstrumentCommand {
             )
           )
 
-          return false
+          return {success: false}
         }
-        await Promise.all([
-          this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars),
-          this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
-        ])
+        await this.instrumentExtension(aasClient, config, resourceGroup, webApp, runtime, existingEnvVars)
         // we explicitly tag after instrumentation so we don't get a positive telemetry signal until it succeeds
         await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
 
-        return true
+        return {success: true, sticky}
       }
 
       // Linux instrumentation via sidecar
@@ -169,16 +222,13 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
       }
       config.isDotnet ||= isDotnet(site)
       config.isMusl &&= config.isDotnet && isContainer
-      await Promise.all([
-        this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars),
-        this.makeStickySlotEnvVars(aasClient, resourceGroup, webApp, config),
-      ])
+      await this.instrumentSidecar(aasClient, config, resourceGroup, webApp, isContainer, existingEnvVars)
       // we explicitly tag after instrumentation so we don't get a positive telemetry signal until it succeeds
       await this.addTags(config, aasClient.subscriptionId!, resourceGroup, webApp, site.tags ?? {})
     } catch (error) {
       this.context.stdout.write(renderError(`Failed to instrument ${renderWebApp(webApp)}: ${formatError(error)}`))
 
-      return false
+      return {success: false}
     }
 
     if (!config.shouldNotRestart) {
@@ -191,12 +241,12 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
         } catch (error) {
           this.context.stdout.write(renderError(`Failed to restart Web App ${renderWebApp(webApp)}: ${error}`))
 
-          return false
+          return {success: false}
         }
       }
     }
 
-    return true
+    return {success: true, sticky}
   }
 
   public async addTags(
@@ -353,27 +403,26 @@ This flag is only applicable for containerized .NET apps (on musl-based distribu
     await this.updateEnvVars(client, resourceGroup, webApp, existingEnvVars, envVars)
   }
 
-  private async makeStickySlotEnvVars(
+  /**
+   * Register the given app settings as sticky (in slotConfigNames) so they stay
+   * with their slot across a swap. Runs once per site with a single read-modify-write.
+   */
+  private async registerStickySlotSettings(
     client: WebSiteManagementClient,
     resourceGroup: string,
-    webApp: WebApp,
-    config: AasConfigOptions
+    name: string,
+    names: string[]
   ): Promise<void> {
-    if (!webApp.slot || !config.environment) {
-      return
-    }
-    const existing: SlotConfigNamesResource = await client.webApps.listSlotConfigurationNames(
-      resourceGroup,
-      webApp.name
-    )
+    const existing: SlotConfigNamesResource = await client.webApps.listSlotConfigurationNames(resourceGroup, name)
     const stickyNames = existing.appSettingNames ?? []
-    if (stickyNames.includes('DD_ENV')) {
+    const toAdd = names.filter((settingName) => !stickyNames.includes(settingName))
+    if (toAdd.length === 0) {
       return
     }
     if (!this.dryRun) {
-      await client.webApps.updateSlotConfigurationNames(resourceGroup, webApp.name, {
+      await client.webApps.updateSlotConfigurationNames(resourceGroup, name, {
         ...existing,
-        appSettingNames: [...stickyNames, 'DD_ENV'],
+        appSettingNames: [...stickyNames, ...toAdd],
       })
     }
   }
