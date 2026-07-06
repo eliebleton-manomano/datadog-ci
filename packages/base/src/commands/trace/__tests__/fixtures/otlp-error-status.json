@@ -1,0 +1,22 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {"attributes": []},
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "0123456789abcdef0123456789abcdef",
+              "spanId": "00f067aa0ba902b7",
+              "name": "failing-step",
+              "kind": 1,
+              "startTimeUnixNano": "1544712660000000000",
+              "endTimeUnixNano": "1544712661000000000",
+              "status": {"code": 2, "message": "boom"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

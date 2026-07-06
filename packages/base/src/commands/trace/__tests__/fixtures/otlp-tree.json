@@ -1,0 +1,45 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [{"key": "service.name", "value": {"stringValue": "build"}}]
+      },
+      "scopeSpans": [
+        {
+          "scope": {"name": "lib"},
+          "spans": [
+            {
+              "traceId": "0123456789abcdef0123456789abcdef",
+              "spanId": "aaaaaaaaaaaaaaaa",
+              "name": "root",
+              "kind": 1,
+              "startTimeUnixNano": "1000000000000000000",
+              "endTimeUnixNano": "1000000005000000000",
+              "status": {"code": 0}
+            },
+            {
+              "traceId": "0123456789abcdef0123456789abcdef",
+              "spanId": "bbbbbbbbbbbbbbbb",
+              "parentSpanId": "aaaaaaaaaaaaaaaa",
+              "name": "child-a",
+              "kind": 1,
+              "startTimeUnixNano": "1000000001000000000",
+              "endTimeUnixNano": "1000000002000000000",
+              "status": {"code": 0}
+            },
+            {
+              "traceId": "0123456789abcdef0123456789abcdef",
+              "spanId": "cccccccccccccccc",
+              "parentSpanId": "aaaaaaaaaaaaaaaa",
+              "name": "child-b",
+              "kind": 1,
+              "startTimeUnixNano": "1000000002000000000",
+              "endTimeUnixNano": "1000000004000000000",
+              "status": {"code": 0}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

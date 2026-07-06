@@ -219,6 +219,7 @@ The following `<scope>` and `<command>` values are available.
 <sub>**README:** [📚](/packages/base/src/commands/trace) | **Documentation:** [🔗](https://docs.datadoghq.com/continuous_integration/pipelines/custom_commands/)</sub>
 
 - Add custom commands to a CI Visibility pipeline in Datadog.
+- `from-otel`: Translate an OpenTelemetry (OTLP/JSON) trace file into Datadog custom spans (**beta**, enable with `DD_BETA_COMMANDS_ENABLED=1`).
 
 #### `unity-symbols`
 

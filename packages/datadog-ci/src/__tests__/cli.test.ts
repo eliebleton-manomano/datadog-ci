@@ -135,6 +135,7 @@ describe('cli', () => {
       'sourcemaps upload': [NONEXISTENT_FILE],
       'terraform upload': ['plan', NONEXISTENT_FILE],
       trace: ['id'],
+      'trace from-otel': [NONEXISTENT_FILE],
     }
 
     // some commands do not support --fips option

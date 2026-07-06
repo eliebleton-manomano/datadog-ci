@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 
-import type {APIHelper, Payload} from './interfaces'
+import type {APIHelper, CustomSpanInput, Payload} from './interfaces'
 
 import chalk from 'chalk'
 import {Option} from 'clipanion'
@@ -41,6 +41,8 @@ export abstract class CustomSpanCommand extends BaseCommand {
     fipsIgnoreError: toBoolean(process.env[FIPS_IGNORE_ERROR_ENV_VAR]) ?? false,
   }
 
+  private apiHelper: APIHelper | undefined
+
   protected generateSpanId(): string {
     return crypto.randomBytes(5).toString('hex')
   }
@@ -53,8 +55,29 @@ export abstract class CustomSpanCommand extends BaseCommand {
     id: string,
     startTime: Date,
     endTime: Date,
-    extraTags: Record<string, any>
+    extraTags: Record<string, any>,
+    parentId?: string
   ): Promise<number> {
+    return this.executeReportCustomSpans([
+      {
+        span_id: id,
+        ...(parentId ? {parent_id: parentId} : {}),
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        command: extraTags.command,
+        name: extraTags.name,
+        error_message: extraTags.error_message,
+        exit_code: extraTags.exit_code,
+      },
+    ])
+  }
+
+  /**
+   * Reports one or more custom spans, computing the shared CI / git / CLI context tags once and merging
+   * them into every span. Per-span `tags`/`measures` sit below `--tags`/`DD_TAGS`/`--measures` so CLI and
+   * environment values keep overriding, consistent with the single-span path.
+   */
+  protected async executeReportCustomSpans(spans: CustomSpanInput[]): Promise<number> {
     const provider = getCIProvider()
     if (!SUPPORTED_PROVIDERS.includes(provider)) {
       this.context.stderr.write(
@@ -69,11 +92,11 @@ export abstract class CustomSpanCommand extends BaseCommand {
     const ciSpanTags = getCISpanTags(realGithubJobName, realGithubJobID)
     const envVarTags = this.config.envVarTags ? parseTags(this.config.envVarTags.split(',')) : {}
     const cliTags = this.tags ? parseTags(this.tags) : {}
-    const cliMeasures = this.measures ? parseTags(this.measures) : {}
-    const measures = Object.entries(cliMeasures).reduce((acc, [key, value]) => {
+    const rawCliMeasures = this.measures ? parseTags(this.measures) : {}
+    const cliMeasures = Object.entries(rawCliMeasures).reduce<Record<string, number>>((acc, [key, value]) => {
       const parsedValue = parseFloat(value)
       if (!isNaN(parsedValue)) {
-        return {...acc, [key]: parsedValue}
+        acc[key] = parsedValue
       }
 
       return acc
@@ -82,23 +105,35 @@ export abstract class CustomSpanCommand extends BaseCommand {
     const gitSpanTags = await getGitMetadata()
     const userGitSpanTags = getUserGitSpanTags()
 
-    await this.reportCustomSpan({
-      start_time: startTime.toISOString(),
-      end_time: endTime.toISOString(),
-      ci_provider: provider,
-      span_id: id,
-      tags: {...gitSpanTags, ...ciSpanTags, ...userGitSpanTags, ...cliTags, ...envVarTags},
-      measures,
-      command: extraTags.command,
-      name: extraTags.name,
-      error_message: extraTags.error_message,
-      exit_code: extraTags.exit_code,
-    })
+    // Loop-invariant tag groups, computed once. Precedence low→high:
+    // per-span OTel attributes < authoritative git/CI context < `--tags` < `DD_TAGS`. Per-span attributes
+    // sit lowest so an OTel attribute cannot clobber the git/CI context tags datadog-ci computed.
+    const contextTags = {...gitSpanTags, ...ciSpanTags, ...userGitSpanTags}
+    const overrideTags = {...cliTags, ...envVarTags}
+
+    for (const span of spans) {
+      await this.reportCustomSpan({
+        start_time: span.start_time,
+        end_time: span.end_time,
+        ci_provider: provider,
+        span_id: span.span_id,
+        ...(span.parent_id ? {parent_id: span.parent_id} : {}),
+        tags: {...span.tags, ...contextTags, ...overrideTags},
+        measures: {...span.measures, ...cliMeasures},
+        command: span.command,
+        name: span.name,
+        error_message: span.error_message,
+        exit_code: span.exit_code,
+      })
+    }
 
     return 0
   }
 
   private getApiHelper(): APIHelper {
+    if (this.apiHelper) {
+      return this.apiHelper
+    }
     if (!this.config.apiKey) {
       this.context.stderr.write(
         `Neither ${chalk.red.bold('DATADOG_API_KEY')} nor ${chalk.red.bold('DD_API_KEY')} is in your environment.\n`
@@ -106,7 +141,9 @@ export abstract class CustomSpanCommand extends BaseCommand {
       throw new Error('API key is missing')
     }
 
-    return apiConstructor(this.getBaseIntakeUrl(), this.config.apiKey)
+    this.apiHelper = apiConstructor(this.getBaseIntakeUrl(), this.config.apiKey)
+
+    return this.apiHelper
   }
 
   private getBaseIntakeUrl() {
